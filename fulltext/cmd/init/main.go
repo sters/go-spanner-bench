@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -14,9 +16,11 @@ import (
 	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 
-	"github.com/sters/go-spanner-bench/fulltext/config"
 	"github.com/sters/go-spanner-bench/internal/logging"
 )
+
+//go:embed schema.sql
+var schemaSQL string
 
 var (
 	projectID  = flag.String("project", "", "Google Cloud Project ID")
@@ -143,7 +147,7 @@ func createDatabase(ctx context.Context, projectID, instanceID, databaseID strin
 	op, err := databaseAdmin.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectID, instanceID),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", databaseID),
-		ExtraStatements: config.GetCreateStatements(),
+		ExtraStatements: parseSchemaStatements(schemaSQL),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create database: %w", err)
@@ -161,4 +165,44 @@ func createDatabase(ctx context.Context, projectID, instanceID, databaseID strin
 		"tables", []string{"BenchBase", "BenchFulltext", "BenchSubstring", "BenchNgrams"})
 
 	return nil
+}
+
+// parseSchemaStatements parses the schema SQL and returns individual statements
+func parseSchemaStatements(schema string) []string {
+	var statements []string
+	var currentStatement strings.Builder
+
+	lines := strings.Split(schema, "\n")
+	for _, line := range lines {
+		// Skip comment lines and empty lines
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "--") {
+			continue
+		}
+
+		currentStatement.WriteString(line)
+		currentStatement.WriteString("\n")
+
+		// Check if this line ends with a semicolon (end of statement)
+		if strings.HasSuffix(trimmedLine, ";") {
+			// Remove the trailing semicolon and any trailing whitespace
+			statement := strings.TrimSpace(currentStatement.String())
+			statement = strings.TrimSuffix(statement, ";")
+			if statement != "" {
+				statements = append(statements, statement)
+			}
+			currentStatement.Reset()
+		}
+	}
+
+	// Add any remaining statement
+	if currentStatement.Len() > 0 {
+		statement := strings.TrimSpace(currentStatement.String())
+		statement = strings.TrimSuffix(statement, ";")
+		if statement != "" {
+			statements = append(statements, statement)
+		}
+	}
+
+	return statements
 }
