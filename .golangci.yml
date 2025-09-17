@@ -6,6 +6,7 @@ linters:
     - exhaustive
     - exhaustruct
     - funlen
+    - gci
     - gocognit
     - godox
     - ireturn
@@ -26,6 +27,10 @@ issues:
       linters: ["forbidigo"]
     - text: "is too short for the scope of its usage"
       linters: ["varnamelen"]
+    - text: "is a global variable"
+      linters: ["gochecknoglobals"]
+    - text: "exitAfterDefer"
+      linters: ["gocritic"]
     - path: _test\.go
       linters:
         - dupl

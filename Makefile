@@ -1,10 +1,17 @@
 
 export GOBIN := $(PWD)/bin
 export PATH := $(GOBIN):$(PATH)
+export SPANNER_EMULATOR_HOST := localhost:9010
 
-.PHONY: run
-run:
-	go run main.go $(ARGS)
+.PHONY: emulator-up
+emulator-up:
+	docker-compose up -d
+	@echo "Waiting for Spanner Emulator to be ready..."
+	@sleep 5
+
+.PHONY: emulator-down
+emulator-down:
+	docker-compose down
 
 .PHONY: lint
 lint:
@@ -25,3 +32,15 @@ cover:
 .PHONY: tidy
 tidy:
 	go mod tidy
+
+.PHONY: fulltext/init
+fulltext/init: emulator-up
+	$(MAKE) -C fulltext init
+
+.PHONY: fulltext/bench-all
+fulltext/bench-all: emulator-up
+	$(MAKE) -C fulltext bench-all
+
+.PHONY: fulltext/test-emulator
+fulltext/test-emulator: emulator-up
+	$(MAKE) -C fulltext test-emulator
