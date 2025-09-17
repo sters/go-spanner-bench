@@ -40,6 +40,66 @@ type benchmarkResult struct {
 	duration time.Duration
 }
 
+func loadConfig() {
+	if *projectID == "" {
+		*projectID = os.Getenv("SPANNER_PROJECT_ID")
+	}
+	if *instanceID == "" {
+		*instanceID = os.Getenv("SPANNER_INSTANCE_ID")
+	}
+	if *databaseID == "" {
+		*databaseID = os.Getenv("SPANNER_DATABASE_ID")
+	}
+	if *bqProjectID == "" {
+		*bqProjectID = os.Getenv("BQ_PROJECT_ID")
+	}
+}
+
+func validateConfig(logger *slog.Logger) {
+	if *projectID == "" || *instanceID == "" || *databaseID == "" {
+		logger.Error("Spanner connection info required",
+			"project", *projectID,
+			"instance", *instanceID,
+			"database", *databaseID)
+		os.Exit(1)
+	}
+	if *bqProjectID == "" || *bqQuery == "" {
+		logger.Error("BigQuery info required",
+			"bq-project", *bqProjectID,
+			"bq-query", *bqQuery)
+		os.Exit(1)
+	}
+}
+
+func setupClients(ctx context.Context, logger *slog.Logger) (*bigquery.Client, *spanner.Client) {
+	bqClient, err := bigquery.NewClient(ctx, *bqProjectID)
+	if err != nil {
+		logger.Error("Failed to create BigQuery client", "error", err)
+		os.Exit(1)
+	}
+
+	spannerDB := fmt.Sprintf("projects/%s/instances/%s/databases/%s",
+		*projectID, *instanceID, *databaseID)
+	spannerClient, err := spanner.NewClient(ctx, spannerDB)
+	if err != nil {
+		bqClient.Close()
+		logger.Error("Failed to create Spanner client", "error", err)
+		os.Exit(1)
+	}
+
+	return bqClient, spannerClient
+}
+
+func processBatch(ctx context.Context, client *spanner.Client, mutations []*spanner.Mutation, tables []string) (benchmarkResult, int, error) {
+	start := time.Now()
+	_, err := client.Apply(ctx, mutations)
+	if err != nil {
+		return benchmarkResult{}, 0, fmt.Errorf("failed to apply mutations: %w", err)
+	}
+
+	return benchmarkResult{duration: time.Since(start)}, len(mutations) / len(tables), nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -74,50 +134,13 @@ func main() {
 		}()
 	}
 
-	if *projectID == "" {
-		*projectID = os.Getenv("SPANNER_PROJECT_ID")
-	}
-	if *instanceID == "" {
-		*instanceID = os.Getenv("SPANNER_INSTANCE_ID")
-	}
-	if *databaseID == "" {
-		*databaseID = os.Getenv("SPANNER_DATABASE_ID")
-	}
-	if *bqProjectID == "" {
-		*bqProjectID = os.Getenv("BQ_PROJECT_ID")
-	}
-
-	if *projectID == "" || *instanceID == "" || *databaseID == "" {
-		logger.Error("Spanner connection info required",
-			"project", *projectID,
-			"instance", *instanceID,
-			"database", *databaseID)
-		os.Exit(1)
-	}
-	if *bqProjectID == "" || *bqQuery == "" {
-		logger.Error("BigQuery info required",
-			"bq-project", *bqProjectID,
-			"bq-query", *bqQuery)
-		os.Exit(1)
-	}
+	loadConfig()
+	validateConfig(logger)
 
 	ctx := context.Background()
 
-	bqClient, err := bigquery.NewClient(ctx, *bqProjectID)
-	if err != nil {
-		logger.Error("Failed to create BigQuery client", "error", err)
-		os.Exit(1)
-	}
+	bqClient, spannerClient := setupClients(ctx, logger)
 	defer bqClient.Close()
-
-	spannerDB := fmt.Sprintf("projects/%s/instances/%s/databases/%s",
-		*projectID, *instanceID, *databaseID)
-	spannerClient, err := spanner.NewClient(ctx, spannerDB)
-	if err != nil {
-		bqClient.Close()
-		logger.Error("Failed to create Spanner client", "error", err)
-		os.Exit(1)
-	}
 	defer spannerClient.Close()
 
 	logger.Info("Executing BigQuery query", "query", *bqQuery)
@@ -174,16 +197,13 @@ func main() {
 		}
 
 		if len(mutations) >= *batchSize*len(tables) {
-			start := time.Now()
-			if _, err := spannerClient.Apply(ctx, mutations); err != nil {
+			if result, rows, err := processBatch(ctx, spannerClient, mutations, tables); err != nil {
 				logger.Warn("Failed to insert batch", "error", err)
 			} else {
-				results = append(results, benchmarkResult{
-					duration: time.Since(start),
-				})
-				totalRows += len(mutations) / len(tables)
+				results = append(results, result)
+				totalRows += rows
 				logger.Info("Inserted batch",
-					"rows_per_table", len(mutations)/len(tables),
+					"rows_per_table", rows,
 					"total_rows", totalRows)
 			}
 			mutations = mutations[:0]
@@ -195,16 +215,13 @@ func main() {
 	}
 
 	if len(mutations) > 0 {
-		start := time.Now()
-		if _, err := spannerClient.Apply(ctx, mutations); err != nil {
+		if result, rows, err := processBatch(ctx, spannerClient, mutations, tables); err != nil {
 			logger.Warn("Failed to insert final batch", "error", err)
 		} else {
-			results = append(results, benchmarkResult{
-				duration: time.Since(start),
-			})
-			totalRows += len(mutations) / len(tables)
+			results = append(results, result)
+			totalRows += rows
 			logger.Info("Inserted final batch",
-				"rows_per_table", len(mutations)/len(tables),
+				"rows_per_table", rows,
 				"total_rows", totalRows)
 		}
 	}
@@ -256,7 +273,7 @@ func printStats(results []benchmarkResult, resultsFile *os.File, logger *slog.Lo
 	// Write JSON results to file if specified
 	if resultsFile != nil {
 		resultsData := map[string]interface{}{
-			"timestamp":  time.Now().Format(time.RFC3339),
+			"timestamp": time.Now().Format(time.RFC3339),
 			"operation": "insert",
 			"batches":   len(results),
 			"latency": map[string]float64{

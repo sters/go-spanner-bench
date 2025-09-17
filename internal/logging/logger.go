@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -99,7 +100,7 @@ func WriteJSONResults(resultsFile *os.File, results interface{}) error {
 
 // GenerateTimestampedPath generates a timestamped path for output files.
 // If the input path is empty, returns empty string.
-// If the input path contains "logs" or "results", it will be placed under fulltext/outputs/yyyymmddhhmmss/
+// If the input path contains "logs" or "results", it will be placed under fulltext/outputs/yyyymmddhhmmss/.
 func GenerateTimestampedPath(originalPath string) string {
 	if originalPath == "" {
 		return ""
@@ -114,7 +115,7 @@ func GenerateTimestampedPath(originalPath string) string {
 		return filepath.Join("fulltext", "outputs", timestamp, dir, basename)
 	}
 
-	if filepath.HasPrefix(originalPath, "logs/") || filepath.HasPrefix(originalPath, "results/") {
+	if strings.HasPrefix(originalPath, "logs/") || strings.HasPrefix(originalPath, "results/") {
 		return filepath.Join("fulltext", "outputs", timestamp, originalPath)
 	}
 
