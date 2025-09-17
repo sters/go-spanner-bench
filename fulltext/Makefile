@@ -103,3 +103,7 @@ hammer/diff: init
 .PHONY: hammer/export
 hammer/export: init
 	@$(MAKE) -C hammer export
+
+.PHONY: hammer/export-and-diff
+hammer/export-and-diff: init
+	@$(MAKE) -C hammer export-and-diff

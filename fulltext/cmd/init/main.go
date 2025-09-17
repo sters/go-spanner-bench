@@ -67,7 +67,22 @@ func main() {
 		logger.Warn("Failed to create instance (may already exist)", "error", err)
 	}
 
-	// Drop database if it exists
+	// Check if database already exists
+	if exists, err := databaseExists(ctx, *projectID, *instanceID, *databaseID); err != nil {
+		logger.Error("Failed to check database existence", "error", err)
+		if logFileHandle != nil {
+			logFileHandle.Close()
+		}
+		os.Exit(1)
+	} else if exists {
+		logger.Info("Database already exists, skipping creation",
+			"project", *projectID,
+			"instance", *instanceID,
+			"database", *databaseID)
+		return
+	}
+
+	// Drop database if it exists (shouldn't happen due to check above, but kept for safety)
 	if err := dropDatabase(ctx, *projectID, *instanceID, *databaseID); err != nil {
 		logger.Warn("Failed to drop database (may not exist)", "error", err)
 	}
@@ -117,6 +132,31 @@ func createInstance(ctx context.Context, projectID, instanceID string) error {
 	}
 
 	return nil
+}
+
+func databaseExists(ctx context.Context, projectID, instanceID, databaseID string) (bool, error) {
+	databaseAdmin, err := database.NewDatabaseAdminClient(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to create database admin client: %w", err)
+	}
+	defer databaseAdmin.Close()
+
+	dbName := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, databaseID)
+
+	_, err = databaseAdmin.GetDatabase(ctx, &databasepb.GetDatabaseRequest{
+		Name: dbName,
+	})
+	if err != nil {
+		// If the error indicates the database doesn't exist, return false
+		if strings.Contains(err.Error(), "NotFound") {
+			return false, nil
+		}
+		// Other errors should be returned
+		return false, fmt.Errorf("failed to get database: %w", err)
+	}
+
+	// Database exists
+	return true, nil
 }
 
 func dropDatabase(ctx context.Context, projectID, instanceID, databaseID string) error {

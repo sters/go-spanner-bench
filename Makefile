@@ -67,3 +67,7 @@ fulltext/hammer/diff: emulator-up
 .PHONY: fulltext/hammer/export
 fulltext/hammer/export: emulator-up
 	@$(MAKE) -C fulltext hammer/export
+
+.PHONY: fulltext/hammer/export-and-diff
+fulltext/hammer/export-and-diff: emulator-up
+	@$(MAKE) -C fulltext hammer/export-and-diff

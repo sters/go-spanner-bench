@@ -26,7 +26,9 @@ CREATE SEARCH INDEX BenchSubstring_BodyTokens ON BenchSubstring(BodyTokens);
 CREATE TABLE BenchNgrams (
     UUID STRING(36) NOT NULL,
     Body STRING(MAX) NOT NULL,
-    BodyTokens TOKENLIST AS (TOKENIZE_NGRAMS(Body, ngram_size_min=>2, ngram_size_max=>3)) HIDDEN
+    BodyTokens TOKENLIST AS (TOKENIZE_NGRAMS(Body, ngram_size_min=>2, ngram_size_max=>3)) HIDDEN,
+    BodyTokens2 TOKENLIST AS (TOKENIZE_NGRAMS(Body, ngram_size_min=>1, ngram_size_max=>4)) HIDDEN
 ) PRIMARY KEY (UUID);
 
 CREATE SEARCH INDEX BenchNgrams_BodyTokens ON BenchNgrams(BodyTokens);
+CREATE SEARCH INDEX BenchNgrams_BodyTokens2 ON BenchNgrams(BodyTokens2);
